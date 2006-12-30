@@ -1,6 +1,6 @@
 /*
 	gcode2eps - convert g-code to EPS
-	
+
 	Copyright 2004 Shawn Rutledge
 	Licensed subject to the terms of the GNU Public License
 */
@@ -74,8 +74,11 @@ int main(int argc, char** argv)
 	ssize_t read;
 	int pathOpen = FALSE;
 	int pathExists = FALSE;
+	int relativeCoords = FALSE;
 	float end_x, end_y, end_z, end_i, end_j;
 	float min_x, min_y, min_z, max_x, max_y, max_z;
+	float scale = 72 / 25.4;  // default units: mm; convert to points
+	float X, Y, Z, I, J, r, cx, cy, dx, dy, a1, a2;
 
 	// Check the arguments
 	if (argc < 2 || argv[1][0] == '-')
@@ -93,7 +96,7 @@ int main(int argc, char** argv)
 		fprintf(stderr, "ERROR: cannot open %s for reading\n", argv[1]);
 		exit(1);
 	}
-	
+
 	if (argc > 2)
 	{
 		out = fopen(argv[2], "w");
@@ -103,13 +106,13 @@ int main(int argc, char** argv)
 			exit(1);
 		}
 	}
-	
+
 	// Get the extents, so we can output the BoundingBox comment.
-	while ((read = getline(&line, &len, in)) != -1) 
+	while ((read = getline(&line, &len, in)) != -1)
 	{
 		enum states state = BEGIN;
 		float temp;
-		
+
 		for (i = 0; i < read && state != COMMENT; ++i)
 		{
 			switch (state)
@@ -135,12 +138,12 @@ int main(int argc, char** argv)
 					min_z = min(min_z, temp);
 					max_z = max(max_z, temp);
 					break;
-				}	
+				}
 			}
 		}
 	}
 	fclose(in);
-	
+
 	// Re-open the file.  Because of this it's probably not possible to
 	// read from STDIN.
 	in = fopen(argv[1], "r");
@@ -149,23 +152,22 @@ int main(int argc, char** argv)
 		fprintf(stderr, "ERROR: cannot open %s for reading\n", argv[1]);
 		exit(1);
 	}
-	
+
 	// Output EPS header stuff
 	fprintf(out, "%%!PS-Adobe-2.0 EPSF-2.0n\n");
 	fprintf(out, "%%%%Title: %s\n", argv[1]);
 	fprintf(out, "%%%%Creator: gcode2eps 0.1\n");
-	fprintf(out, "%%%%BoundingBox: %d %d %d %d\n", 
-		lrintf(min_x) - 1, lrintf(min_y) - 1, 
-		lrintf(max_x) + 1, lrintf(max_y) + 1);
-	
+	fprintf(out, "%%%%BoundingBox: %d %d %d %d\n",
+		lrintf(min_x * scale) - 1, lrintf(min_y * scale) - 1,
+		lrintf(max_x *scale) + 1, lrintf(max_y * scale) + 1);
+
 	fprintf(out, "gsave 1 setlinecap 1 setlinejoin\n");
 
 	// Read G-codes and output PS commands
-	while ((read = getline(&line, &len, in)) != -1) 
+	while ((read = getline(&line, &len, in)) != -1)
 	{
 		enum states state = BEGIN;
 		int gcode = -1;
-		float X, Y, Z, I, J, r, cx, cy, dx, dy, a1, a2;
 		for (i = 0; i < read && state != COMMENT; ++i)
 		{
 			switch (state)
@@ -178,7 +180,7 @@ int main(int argc, char** argv)
 					break;
 				case 'G':
 					gcode = atoi(line + i + 1);
-//printf("got gcode %d\n", gcode);			
+//printf("got gcode %d\n", gcode);
 					state = PARM;
 					break;
 				// if we find numbers, they aren't useful unti we have the gcode
@@ -188,23 +190,38 @@ int main(int argc, char** argv)
 				switch (line[i])
 				{
 				case 'X':
-					X = atof(line + i + 1);
-//printf("got X %f\n", X);			
+					if (relativeCoords)
+						X += atof(line + i + 1);
+					else
+						X = atof(line + i + 1);
+//printf("got X %f\n", X);
 					break;
 				case 'Y':
-					Y = atof(line + i + 1);
-//printf("got Y %f\n", Y);			
+					if (relativeCoords)
+						Y += atof(line + i + 1);
+					else
+						Y = atof(line + i + 1);
+//printf("got Y %f\n", Y);
 					break;
 				case 'Z':
-					Z = atof(line + i + 1);
+					if (relativeCoords)
+						Z += atof(line + i + 1);
+					else
+						Z = atof(line + i + 1);
 //printf("got Z %f\n", Z);
 					break;
 				case 'I':
-					I = atof(line + i + 1);
+					if (relativeCoords)
+						I += atof(line + i + 1);
+					else
+						I = atof(line + i + 1);
 //printf("got I %f\n", I);
 					break;
 				case 'J':
-					J = atof(line + i + 1);
+					if (relativeCoords)
+						J += atof(line + i + 1);
+					else
+						J = atof(line + i + 1);
 //printf("got J %f\n", J);
 					break;
 				case '\n':
@@ -227,13 +244,13 @@ int main(int argc, char** argv)
 					{
 						fprintf(out, "stroke\n");
 					}
-					fprintf(out, "newpath %f %f moveto\n", X, Y);
+					fprintf(out, "newpath %f %f moveto\n", X * scale, Y * scale);
 					pathOpen = TRUE;
 					pathExists = FALSE;
 					break;
 				// G1: lineto
 				case 1:
-					fprintf(out, "%f %f lineto\n", X, Y);
+					fprintf(out, "%f %f lineto\n", X * scale, Y * scale);
 					pathExists = TRUE;
 					break;
 				// G2: arc cw
@@ -248,8 +265,8 @@ int main(int argc, char** argv)
 					a1 = angle(cx, cy, end_x, end_y);
 					a2 = angle(cx, cy, X, Y);
 //printf("a1 %f, a2 %f\n", a1, a2);
-					fprintf(out, "%f %f %f %f %f arcn\n", 
-						cx, cy, r, a1, a2);
+					fprintf(out, "%f %f %f %f %f arcn\n",
+						cx * scale, cy * scale, r * scale, a1 * scale, a2 * scale);
 					pathExists = TRUE;
 					break;
 				// G3: arc ccw
@@ -264,12 +281,20 @@ int main(int argc, char** argv)
 					a1 = angle(cx, cy, end_x, end_y);
 					a2 = angle(cx, cy, X, Y);
 //printf("a1 %f, a2 %f\n", a1, a2);
-					fprintf(out, "%f %f %f %f %f arc\n", 
-						cx, cy, r, a1, a2);
+					fprintf(out, "%f %f %f %f %f arc\n",
+						cx * scale, cy * scale, r * scale, a1 * scale, a2 * scale);
 					pathExists = TRUE;
 					break;
+				// G91: set absolute mode
+				case 90:
+					relativeCoords = FALSE;
+					break;
+				// G91: set relative mode
+				case 91:
+					relativeCoords = TRUE;
+					break;
 				}
-				
+
 				end_x = X;
 				end_y = Y;
 				end_z = Z;
