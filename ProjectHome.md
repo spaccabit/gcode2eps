@@ -1,0 +1,1 @@
+Preview CNC G-code before cutting parts. Very useful for writing code by hand, especially for 2D or 2 1/2-D parts like plaques and circuit boards.
